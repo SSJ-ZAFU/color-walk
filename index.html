@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>颜色幸运转盘</title>
+  <style>
+    :root {
+      --bg: #0f1116;
+      --panel: #171a22;
+      --gold: #f5c451;
+      --gold-soft: #ffe6a6;
+      --text: #f6f7fb;
+      --muted: #b8bfcc;
+      --danger: #ff5b5b;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background:
+        radial-gradient(circle at top, rgba(245, 196, 81, 0.14), transparent 28%),
+        linear-gradient(180deg, #11141b 0%, #0c0e13 100%);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .app {
+      width: min(100%, 520px);
+      background: rgba(23, 26, 34, 0.92);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 28px;
+      box-shadow: 0 22px 80px rgba(0,0,0,0.45);
+      padding: 20px 16px 24px;
+      backdrop-filter: blur(8px);
+    }
+
+    h1 {
+      margin: 6px 0 14px;
+      text-align: center;
+      font-size: 28px;
+      letter-spacing: 1px;
+      color: var(--gold);
+    }
+
+    .wheel-wrap {
+      position: relative;
+      width: min(92vw, 430px);
+      height: min(92vw, 430px);
+      margin: 0 auto;
+      display: grid;
+      place-items: center;
+    }
+
+    .pointer {
+      position: absolute;
+      top: -2px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 16px solid transparent;
+      border-right: 16px solid transparent;
+      border-top: 0;
+      border-bottom: 34px solid var(--danger);
+      filter: drop-shadow(0 4px 6px rgba(0,0,0,0.35));
+      z-index: 5;
+    }
+
+    .pointer::after {
+      content: "";
+      position: absolute;
+      left: -7px;
+      top: 6px;
+      width: 14px;
+      height: 12px;
+      background: rgba(255,255,255,0.35);
+      clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .result {
+      margin: 18px 0 8px;
+      min-height: 30px;
+      text-align: center;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .sub {
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 14px 22px;
+      font-size: 16px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: transform 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    button:active { transform: scale(0.98); }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .spin-btn {
+      color: #2b2108;
+      background: linear-gradient(180deg, #ffd873 0%, #f5c451 100%);
+      box-shadow: 0 10px 24px rgba(245,196,81,0.28);
+    }
+
+    .copy-btn {
+      color: var(--text);
+      background: #252a36;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .footer {
+      margin-top: 14px;
+      text-align: center;
+      font-size: 12px;
+      color: #8d95a3;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <h1>颜色幸运转盘</h1>
+
+    <div class="wheel-wrap">
+      <div class="pointer"></div>
+      <canvas id="wheel" width="860" height="860"></canvas>
+    </div>
+
+    <div id="result" class="result">点击开始抽奖</div>
+    
+
+    <div class="actions">
+      <button id="spinBtn" class="spin-btn">开始抽奖</button>
+      <button id="copyBtn" class="copy-btn">复制结果</button>
+    </div>
+</div>
+
+  <script>
+    const colors = [
+      { name: '红色', color: '#f23333' },
+      { name: '橙色', color: '#ff8c1a' },
+      { name: '黄色', color: '#ffd91a' },
+      { name: '绿色', color: '#33cc40' },
+      { name: '青色', color: '#1ad9e6' },
+      { name: '蓝色', color: '#3373f2' },
+      { name: '紫色', color: '#9940e6' },
+      { name: '粉色', color: '#f273bf' }
+    ];
+
+    const canvas = document.getElementById('wheel');
+    const ctx = canvas.getContext('2d');
+    const resultEl = document.getElementById('result');
+    const spinBtn = document.getElementById('spinBtn');
+    const copyBtn = document.getElementById('copyBtn');
+
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const radius = 340;
+    const outerRadius = 380;
+    const sector = Math.PI * 2 / colors.length;
+
+    let currentHighlight = 0;
+    let winnerIndex = null;
+    let blinkOn = true;
+    let spinning = false;
+
+    function hexToRgb(hex) {
+      const h = hex.replace('#', '');
+      const bigint = parseInt(h, 16);
+      return {
+        r: (bigint >> 16) & 255,
+        g: (bigint >> 8) & 255,
+        b: bigint & 255
+      };
+    }
+
+    function brighten(hex, factor = 1.2, lift = 0) {
+      const { r, g, b } = hexToRgb(hex);
+      const nr = Math.min(255, Math.round(r * factor + lift));
+      const ng = Math.min(255, Math.round(g * factor + lift));
+      const nb = Math.min(255, Math.round(b * factor + lift));
+      return `rgb(${nr}, ${ng}, ${nb})`;
+    }
+
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function drawGlowRing(r, alpha, width, color) {
+      for (let i = width; i > 0; i--) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, r + i, 0, Math.PI * 2);
+        ctx.strokeStyle = color.replace('ALPHA', String(alpha * (i / width) * 0.22));
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+
+    function drawWheel() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      drawGlowRing(outerRadius + 8, 1, 22, 'rgba(245,196,81,ALPHA)');
+      drawGlowRing(outerRadius - 10, 1, 10, 'rgba(255,255,255,ALPHA)');
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, outerRadius, 0, Math.PI * 2);
+      ctx.fillStyle = '#272b33';
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, outerRadius - 18, 0, Math.PI * 2);
+      ctx.fillStyle = '#161920';
+      ctx.fill();
+
+      for (let k = 0; k < 24; k++) {
+        const ang = (Math.PI * 2 * k) / 24 - Math.PI / 2;
+        const x = cx + (outerRadius - 9) * Math.cos(ang);
+        const y = cy + (outerRadius - 9) * Math.sin(ang);
+        ctx.beginPath();
+        ctx.arc(x, y, 8, 0, Math.PI * 2);
+        ctx.fillStyle = '#f5c451';
+        ctx.fill();
+        ctx.strokeStyle = '#ffe6a6';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      for (let i = 0; i < colors.length; i++) {
+        const start = -Math.PI / 2 + i * sector;
+        const end = start + sector;
+
+        let fill = colors[i].color;
+        let lineWidth = 4;
+        let stroke = 'rgba(255,255,255,0.92)';
+        const isCurrent = i === currentHighlight && winnerIndex === null;
+        const isWinner = winnerIndex === i;
+
+        if (isCurrent) {
+          fill = brighten(fill, 1.2, 18);
+          lineWidth = 8;
+          stroke = '#ffffff';
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.arc(cx, cy, radius + 18, start, end);
+          ctx.closePath();
+          ctx.fillStyle = 'rgba(255,255,255,0.16)';
+          ctx.fill();
+        }
+
+        if (isWinner && blinkOn) {
+          fill = brighten(fill, 1.28, 22);
+          lineWidth = 10;
+          stroke = '#fff0a3';
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.arc(cx, cy, radius + 24, start, end);
+          ctx.closePath();
+          ctx.fillStyle = 'rgba(255,255,255,0.20)';
+          ctx.fill();
+        } else if (isWinner && !blinkOn) {
+          fill = brighten(fill, 0.95, 0);
+          lineWidth = 5;
+          stroke = 'rgba(220,220,220,0.9)';
+        }
+
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, radius, start, end);
+        ctx.closePath();
+        ctx.fillStyle = fill;
+        ctx.fill();
+        ctx.lineWidth = lineWidth;
+        ctx.strokeStyle = stroke;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, radius * 0.78, start, end);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(255,255,255,0.14)';
+        ctx.fill();
+
+        const mid = start + sector / 2;
+        const tx = cx + Math.cos(mid) * 220;
+        const ty = cy + Math.sin(mid) * 220;
+
+        ctx.save();
+        ctx.translate(tx, ty);
+        ctx.rotate(mid + Math.PI / 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `${(isCurrent || (isWinner && blinkOn)) ? 'bold 40px' : 'bold 34px'} sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(colors[i].name, 0, 0);
+        ctx.restore();
+      }
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, 88, 0, Math.PI * 2);
+      ctx.fillStyle = '#252931';
+      ctx.fill();
+      ctx.lineWidth = 8;
+      ctx.strokeStyle = '#f5c451';
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, 62, 0, Math.PI * 2);
+      ctx.fillStyle = '#f7c24c';
+      ctx.fill();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#ffe6a6';
+      ctx.stroke();
+
+      ctx.fillStyle = '#362807';
+      ctx.font = 'bold 42px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('GO', cx, cy + 2);
+    }
+
+    async function spin() {
+      if (spinning) return;
+      spinning = true;
+      spinBtn.disabled = true;
+      winnerIndex = null;
+      blinkOn = true;
+      resultEl.textContent = '正在抽取...';
+      resultEl.style.color = '#f6f7fb';
+
+      const targetIndex = Math.floor(Math.random() * colors.length);
+      const startIndex = currentHighlight;
+      let totalSteps = colors.length + ((targetIndex - startIndex + colors.length) % colors.length);
+      if (totalSteps < colors.length) totalSteps += colors.length;
+      const minDelay = 45;
+      const maxDelay = 140;
+
+      for (let step = 0; step < totalSteps; step++) {
+        currentHighlight = (startIndex + step) % colors.length;
+        drawWheel();
+        const t = totalSteps === 1 ? 1 : step / (totalSteps - 1);
+        const eased = t * t;
+        const delay = minDelay + (maxDelay - minDelay) * eased;
+        await sleep(delay);
+      }
+
+      winnerIndex = targetIndex;
+      currentHighlight = winnerIndex;
+      drawWheel();
+      resultEl.textContent = `抽中了：${colors[winnerIndex].name}`;
+      resultEl.style.color = colors[winnerIndex].color;
+
+      for (let i = 0; i < 3; i++) {
+        blinkOn = false;
+        drawWheel();
+        await sleep(120);
+        blinkOn = true;
+        drawWheel();
+        await sleep(120);
+      }
+
+      blinkOn = true;
+      drawWheel();
+      spinBtn.disabled = false;
+      spinning = false;
+    }
+
+    async function copyResult() {
+      const text = resultEl.textContent || '颜色幸运转盘';
+      try {
+        await navigator.clipboard.writeText(text);
+        copyBtn.textContent = '已复制';
+        setTimeout(() => { copyBtn.textContent = '复制结果'; }, 1200);
+      } catch {
+        copyBtn.textContent = '复制失败';
+        setTimeout(() => { copyBtn.textContent = '复制结果'; }, 1200);
+      }
+    }
+
+    spinBtn.addEventListener('click', spin);
+    copyBtn.addEventListener('click', copyResult);
+
+    drawWheel();
+  </script>
+</body>
+</html>
